@@ -235,6 +235,16 @@
   .modal-confirm{flex:1;background:var(--bear-bg);border:1px solid var(--bear-border);border-radius:8px;padding:11px;font-family:'Syne',sans-serif;font-size:13px;font-weight:700;color:var(--bear);cursor:pointer;transition:background 0.15s;}
   .modal-confirm:hover{background:rgba(255,77,109,0.15);}
   .hidden{display:none!important;}
+
+  /* QUALITY BADGE */
+  .quality-badge{font-family:'Space Mono',monospace;font-size:9px;letter-spacing:0.12em;text-transform:uppercase;padding:5px 10px;border-radius:6px;margin-bottom:10px;display:inline-block;}
+  .quality-badge.best{color:#0a0a0f;background:var(--accent);box-shadow:0 0 12px rgba(200,255,0,0.3);}
+  .quality-badge.good{color:var(--bull);background:var(--bull-bg);border:1px solid var(--bull-border);}
+  .quality-badge.low{color:var(--counter);background:var(--counter-bg);border:1px solid var(--counter-border);}
+
+  /* WAIT RESULT CARD */
+  .result-card.wait{border-color:rgba(255,170,0,0.3);}
+  .result-card.wait .result-header{border-top:3px solid var(--counter);}
 </style>
 </head>
 <body>
@@ -295,7 +305,7 @@ const STORAGE_KEY='tf_watchlist_v1';
 function loadWatchlist(){try{return JSON.parse(localStorage.getItem(STORAGE_KEY))||[];}catch{return[];}}
 function saveWatchlist(l){localStorage.setItem(STORAGE_KEY,JSON.stringify(l));}
 let watchlist=loadWatchlist();
-let aState={pair:'',htf:'',orderFlow:'',momentum:'',broken:'',pullback:'',step:0};
+let aState={pair:'',htf:'',orderFlow:'',momentum:'',broken:'',sweepReclaim:'',pullback:'',step:0};
 let aTrail=[];
 
 function showView(id){document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));document.getElementById(id).classList.add('active');window.scrollTo(0,0);}
@@ -338,7 +348,8 @@ function renderWatchlist(){
 function pairCardHTML(p,i){
   const r=p.result;
   const cls=r.tradeType==='reversal'?'rev':'cont';
-  const tradeLabel=r.tradeType==='reversal'?'Reversal':'Continuation';
+  const subTypeMap={'pro':'Pro Trend','resumption':'HTF Resumption','counter':'Counter Trend','postbreak':'Post-Break'};
+  const tradeLabel=r.tradeType==='reversal'?'Reversal':(subTypeMap[r.subType]||'Continuation');
   const ts=new Date(p.timestamp);
   const timeStr=ts.toLocaleString(undefined,{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
   const pills=p.trail.map(t=>'<span class="mini-pill '+t.cls+'">'+t.label+'</span>').join('');
@@ -353,30 +364,98 @@ function toggleCard(i){
 }
 
 function getSteps(){
+  const o=aState.orderFlow;const isBull=o==='bull';
+  const lowerTF=aState.htf==='weekly'?'Daily':'4H';
   const steps=[
-    {id:'htf',num:'Step 01',question:'Which Higher Timeframe are you using?',hint:'This determines your entry and confirmation timeframes.',choices:[{key:'weekly',cls:'neutral',icon:'\uD83D\uDCC5',label:'Weekly',sub:'Entry on H1 \u00B7 Confirm on Daily candle'},{key:'daily',cls:'neutral',icon:'\uD83D\uDD50',label:'Daily',sub:'Entry on M15 \u00B7 Confirm on 4H candle'}]},
-    {id:'orderFlow',num:'Step 02',question:'What is the HTF Order Flow?',hint:'Higher highs & higher lows = bullish. Lower highs & lower lows = bearish.',choices:[{key:'bull',cls:'bull',icon:'\u25B2',label:'Bullish',sub:'Higher highs & higher lows'},{key:'bear',cls:'bear',icon:'\u25BC',label:'Bearish',sub:'Lower highs & lower lows'}]},
-    {id:'momentum',num:'Step 03',question:'Is price momentum Pro Trend or Counter Trend?',hint:'Is current price moving WITH the HTF order flow or AGAINST it?',choices:[{key:'pro',cls:'pro',icon:'\u2192',label:'Pro Trend',sub:'Moving with the HTF direction'},{key:'counter',cls:'counter',icon:'\u2190',label:'Counter Trend',sub:'Moving against the HTF direction'}]},
-    {id:'broken',num:'Step 04',question:'Has price broken the previous HTF High or Low?',hint:'Has the current move taken out the previous HTF session swing point?',choices:[{key:'broken',cls:'broken',icon:'\u26A1',label:'Broken',sub:'Previous HTF level has been taken out'},{key:'notbroken',cls:'notbroken',icon:'\u25A0',label:'Not Broken',sub:'Previous HTF level still intact'}]},
+    {id:'htf',num:'Step 01',question:'Which Higher Timeframe are you using?',hint:'This determines your entry and confirmation timeframes.',choices:[
+      {key:'weekly',cls:'neutral',icon:'\uD83D\uDCC5',label:'Weekly',sub:'Entry on H1 \u00B7 Confirm on Daily candle'},
+      {key:'daily', cls:'neutral',icon:'\uD83D\uDD50',label:'Daily', sub:'Entry on M15 \u00B7 Confirm on 4H candle'}
+    ]},
+    {id:'orderFlow',num:'Step 02',question:'What is the HTF Order Flow?',hint:'Higher highs & higher lows = bullish. Lower highs & lower lows = bearish.',choices:[
+      {key:'bull',cls:'bull',icon:'\u25B2',label:'Bullish',sub:'Higher highs & higher lows'},
+      {key:'bear',cls:'bear',icon:'\u25BC',label:'Bearish',sub:'Lower highs & lower lows'}
+    ]},
+    {id:'momentum',num:'Step 03',question:'Is price momentum Pro Trend or Counter Trend?',hint:'Is current price moving WITH the HTF order flow or AGAINST it?',choices:[
+      {key:'pro',    cls:'pro',    icon:'\u2192',label:'Pro Trend',    sub:'Moving with the HTF direction'},
+      {key:'counter',cls:'counter',icon:'\u2190',label:'Counter Trend',sub:'Moving against the HTF direction'}
+    ]},
+    {id:'broken',num:'Step 04',question:'Has price broken the previous HTF High or Low?',hint:'Has the current move taken out the previous HTF session swing point?',choices:[
+      {key:'broken',   cls:'broken',   icon:'\u26A1',label:'Broken',    sub:'Previous HTF level has been taken out'},
+      {key:'notbroken',cls:'notbroken',icon:'\u25A0',label:'Not Broken',sub:'Previous HTF level still intact'}
+    ]},
   ];
-  if(aState.broken==='broken'){steps.push({id:'pullback',num:'Step 05',question:'Has price pulled back enough for a continuation?',hint:'After breaking, has price retraced into valid value with order flow now in pullback mode?',choices:[{key:'yes',cls:'pro',icon:'\u2713',label:'Yes \u2014 Pullback complete',sub:'Retraced into value, order flow in pullback mode'},{key:'no',cls:'counter',icon:'\u2715',label:'No \u2014 Extended / just broke',sub:'No valid pullback yet'}]});}
+
+  // NOT BROKEN + COUNTER → ask what the lower TF (Daily/4H) closed candle momentum is
+  if(aState.broken==='notbroken' && aState.momentum==='counter'){
+    const alignLabel=isBull?'Bullish — aligning with order flow':'Bearish — aligning with order flow';
+    const counterLabel=isBull?'Bearish — still counter trend':'Bullish — still counter trend';
+    steps.push({id:'lowerMomentum',num:'Step 05',
+      question:'What is the current '+lowerTF+' candle momentum?',
+      hint:'Read from the last closed '+lowerTF+' candle. Is it starting to realign with the HTF order flow, or still pushing counter?',
+      choices:[
+        {key:'aligning', cls:isBull?'bull':'bear', icon:isBull?'\u25B2':'\u25BC', label:alignLabel,  sub:'Counter move may be exhausted — HTF order flow reasserting'},
+        {key:'counter',  cls:'counter',             icon:'\u2190',                label:counterLabel, sub:'Counter trend still active — trade with it, caution against HTF order flow'}
+      ]
+    });
+  }
+
+  // BROKEN → ask about pullback
+  if(aState.broken==='broken'){
+    steps.push({id:'pullback',num:'Step 05',question:'Has price pulled back enough for a continuation?',hint:'After breaking, has price retraced into valid value with order flow now in pullback mode?',choices:[
+      {key:'yes',cls:'pro',    icon:'\u2713',label:'Yes \u2014 Pullback complete',sub:'Retraced into value, order flow in pullback mode'},
+      {key:'no', cls:'counter',icon:'\u2715',label:'No \u2014 Extended / just broke',sub:'No valid pullback yet'}
+    ]});
+  }
+
   return steps;
 }
 
 function computeResult(){
-  const{orderFlow,momentum,broken,pullback,htf}=aState;
-  let tradeType,tp,tpNote,rideNote;
-  if(broken==='notbroken'){
-    tradeType='continuation';
-    if(momentum==='pro'){tp='Previous HTF Session Low / High';tpNote=orderFlow==='bull'?'Previous HTF session high':'Previous HTF session low';rideNote='Can carefully ride until a Higher High or Lower Low is taken out.';}
-    else{tp='Previous HTF Session Low / High';tpNote=orderFlow==='bull'?'Previous HTF session low':'Previous HTF session high';rideNote=null;}
-  }else{
-    if(pullback==='yes'){tradeType='continuation';tp='Current HTF Session Low / High';tpNote=orderFlow==='bull'?'Current HTF session low':'Current HTF session high';rideNote='Can carefully ride until a Higher High or Lower Low is taken out.';}
-    else{tradeType='reversal';tp='Opposite HTF Low / High';tpNote=orderFlow==='bull'?'Opposite HTF low':'Opposite HTF high';rideNote=momentum==='counter'?'Can carefully ride until HH or LL is taken out — this may be the turn back to pro trend.':null;}
-  }
+  const{orderFlow,momentum,broken,pullback,lowerMomentum,htf}=aState;
+  const isBull=orderFlow==='bull';
   const entryTF=htf==='weekly'?'H1 (1 Hour)':'M15 (15 Min)';
   const confirmCandle=htf==='weekly'?'Daily Candle':'4H Candle';
-  return{tradeType,tp,tpNote,rideNote,entryTF,confirmCandle};
+  let tradeType,subType,quality,tp,tpNote,rideNote;
+
+  if(broken==='notbroken'){
+    if(momentum==='pro'){
+      // Best setup — order flow & momentum fully aligned
+      tradeType='continuation'; subType='pro'; quality='best';
+      tp='Previous HTF Session High/Low';
+      tpNote=isBull?'Previous HTF session high':'Previous HTF session low';
+      rideNote='Can carefully ride until a Higher High or Lower Low is taken out.';
+    } else {
+      // Counter trend, not broken — daily/4H tells us which direction to trade
+      if(lowerMomentum==='aligning'){
+        // Daily/4H flipping back toward order flow — counter leg exhausted, resume pro trend
+        tradeType='continuation'; subType='resumption'; quality='good';
+        tp='Previous HTF Session High/Low';
+        tpNote=isBull?'Previous HTF session high':'Previous HTF session low';
+        rideNote='Counter trend leg appears exhausted. '+confirmCandle+' momentum realigning with HTF order flow.';
+      } else {
+        // Daily/4H still counter — counter move has legs, trade with it (with caution)
+        tradeType='continuation'; subType='counter'; quality='good';
+        tp='Previous HTF Session High/Low';
+        tpNote=isBull?'Previous HTF session low':'Previous HTF session high';
+        rideNote='Counter trend momentum confirmed on '+confirmCandle+'. Trade with caution — against HTF order flow.';
+      }
+    }
+  } else {
+    // Broken
+    if(pullback==='yes'){
+      tradeType='continuation'; subType='postbreak'; quality='good';
+      tp='Current HTF Session High/Low';
+      tpNote=isBull?'Current HTF session high':'Current HTF session low';
+      rideNote='Can carefully ride until a Higher High or Lower Low is taken out.';
+    } else {
+      // Broken, no pullback — potential reversal
+      tradeType='reversal'; subType='counter'; quality='low';
+      tp='Opposite HTF High/Low';
+      tpNote=isBull?'Opposite HTF high':'Opposite HTF low';
+      rideNote=momentum==='counter'?'Can carefully ride until HH or LL is taken out \u2014 this may be the turn back to pro trend.':null;
+    }
+  }
+  return{tradeType,subType,quality,tp,tpNote,rideNote,entryTF,confirmCandle};
 }
 
 function startAnalysis(){
@@ -397,12 +476,55 @@ function renderStep(){
   document.getElementById('stepContent').innerHTML='<div class="step-card"><div class="step-header"><span class="step-num">'+cur.num+'</span><span class="step-question">'+cur.question+'</span></div>'+(cur.hint?'<div class="step-hint">'+cur.hint+'</div>':'')+'<div class="choices">'+cur.choices.map(c=>'<button class="choice-btn '+c.cls+'" onclick="choose(\''+cur.id+'\',\''+c.key+'\',\''+c.label+'\',\''+c.cls+'\')"><div class="choice-icon">'+c.icon+'</div><div class="choice-text"><div class="choice-label">'+c.label+'</div>'+(c.sub?'<div class="choice-sub">'+c.sub+'</div>':'')+'</div><div class="choice-arrow">\u203A</div></button>').join('')+'</div></div>'+(aState.step>0?'<button class="btn-back-step" onclick="goBack()">\u2190 Back</button>':'');
 }
 
+function qualityBadge(quality){
+  if(quality==='best')  return '<div class="quality-badge best">\u2605\u2605\u2605 Best Setup \u2014 Pro Trend</div>';
+  if(quality==='good')  return '<div class="quality-badge good">\u2605\u2605 Good Setup</div>';
+  if(quality==='low')   return '<div class="quality-badge low">\u2605 Lower Probability</div>';
+  return '';
+}
+
 function renderResult(){
-  const r=computeResult();const cls=r.tradeType==='reversal'?'rev':'cont';const label=r.tradeType==='reversal'?'Reversal Trade':'Continuation Trade';
+  const r=computeResult();
+
   document.getElementById('progressFill').style.width='100%';
   document.getElementById('progressLabel').textContent='Complete';
   document.getElementById('trail').innerHTML=aTrail.map(t=>'<div class="trail-item '+t.cls+'"><div class="tdot"></div>'+t.label+'</div>').join('');
-  document.getElementById('stepContent').innerHTML='<div class="result-card '+cls+'"><div class="result-header"><div class="result-eyebrow">Setup found \u2014 '+aState.pair+'</div><div class="result-title">'+label+'</div></div><div class="summary-pills">'+aTrail.map(t=>'<span class="pill '+t.cls+'">'+t.label+'</span>').join('')+'</div><div class="result-rows"><div class="result-row"><div class="result-row-label">Take Profit</div><div class="result-row-value accent">'+r.tp+'</div></div><div class="result-row"><div class="result-row-label">Specifically</div><div class="result-row-value">'+r.tpNote+'</div></div>'+(r.rideNote?'<div class="result-row"><div class="result-row-label">Note</div><div class="result-row-value muted">'+r.rideNote+'</div></div>':'')+'</div><div class="tf-badge"><span class="tf-badge-label">Entry TF</span><span class="tf-badge-value">'+r.entryTF+'</span><span class="tf-badge-label" style="margin-left:8px">Confirm</span><span class="tf-badge-value">'+r.confirmCandle+'</span></div><div class="section-divider">Entry confirmation tiers</div><div class="entry-tiers"><div class="tier lo"><div class="tier-dot"></div><div class="tier-content"><div class="tier-prob">Low probability</div><div class="tier-desc">Structure break on '+r.entryTF+' only</div></div></div><div class="tier hi"><div class="tier-dot"></div><div class="tier-content"><div class="tier-prob">High probability</div><div class="tier-desc">Structure break + '+r.confirmCandle+' broken</div></div></div><div class="tier hihi"><div class="tier-dot"></div><div class="tier-content"><div class="tier-prob">\u2605 Highest probability</div><div class="tier-desc">Structure break + '+r.confirmCandle+' broken + sweep of opposite side first</div></div></div></div></div><div class="result-actions"><button class="btn-save" onclick="saveAndReturn()">Save to Watchlist \u2192</button><button class="btn-redo" onclick="redoAnalysis()">\u21BA Redo</button></div>';
+
+  const cls=r.tradeType==='reversal'?'rev':'cont';
+  const labelMap={
+    'continuation-pro':       'Pro Trend Continuation',
+    'continuation-resumption':'HTF Resumption Continuation',
+    'continuation-counter':   'Counter Trend Continuation',
+    'continuation-postbreak': 'Post-Break Continuation',
+    'reversal-counter':       'Potential Reversal Trade'
+  };
+  const label=labelMap[r.tradeType+'-'+r.subType]||'Continuation Trade';
+
+  document.getElementById('stepContent').innerHTML=
+    '<div class="result-card '+cls+'">'+
+      '<div class="result-header">'+
+        qualityBadge(r.quality)+
+        '<div class="result-eyebrow">Setup found \u2014 '+aState.pair+'</div>'+
+        '<div class="result-title">'+label+'</div>'+
+      '</div>'+
+      '<div class="summary-pills">'+aTrail.map(t=>'<span class="pill '+t.cls+'">'+t.label+'</span>').join('')+'</div>'+
+      '<div class="result-rows">'+
+        '<div class="result-row"><div class="result-row-label">Take Profit</div><div class="result-row-value accent">'+r.tp+'</div></div>'+
+        '<div class="result-row"><div class="result-row-label">Specifically</div><div class="result-row-value">'+r.tpNote+'</div></div>'+
+        (r.rideNote?'<div class="result-row"><div class="result-row-label">Note</div><div class="result-row-value muted">'+r.rideNote+'</div></div>':'')+
+      '</div>'+
+      '<div class="tf-badge">'+
+        '<span class="tf-badge-label">Entry TF</span><span class="tf-badge-value">'+r.entryTF+'</span>'+
+        '<span class="tf-badge-label" style="margin-left:8px">Confirm</span><span class="tf-badge-value">'+r.confirmCandle+'</span>'+
+      '</div>'+
+      '<div class="section-divider">Entry confirmation tiers</div>'+
+      '<div class="entry-tiers">'+
+        '<div class="tier lo"><div class="tier-dot"></div><div class="tier-content"><div class="tier-prob">Low probability</div><div class="tier-desc">Structure break on '+r.entryTF+' only</div></div></div>'+
+        '<div class="tier hi"><div class="tier-dot"></div><div class="tier-content"><div class="tier-prob">High probability</div><div class="tier-desc">Structure break + '+r.confirmCandle+' broken</div></div></div>'+
+        '<div class="tier hihi"><div class="tier-dot"></div><div class="tier-content"><div class="tier-prob">\u2605 Highest probability</div><div class="tier-desc">Structure break + '+r.confirmCandle+' broken + sweep of opposite side first</div></div></div>'+
+      '</div>'+
+    '</div>'+
+    '<div class="result-actions"><button class="btn-save" onclick="saveAndReturn()">Save to Watchlist \u2192</button><button class="btn-redo" onclick="redoAnalysis()">\u21BA Redo</button></div>';
 }
 
 function choose(stepId,key,label,cls){
@@ -412,14 +534,16 @@ function choose(stepId,key,label,cls){
 
 function goBack(){
   if(aState.step===0)return;aState.step--;aTrail.pop();
-  const steps=getSteps();const stepId=steps[aState.step].id;aState[stepId]='';
-  if(stepId==='broken')aState.pullback='';renderStep();
+  const steps=getSteps();const stepId=steps[aState.step].id;
+  aState[stepId]='';
+  if(stepId==='broken'){aState.pullback='';aState.lowerMomentum='';}
+  renderStep();
 }
 
 function redoAnalysis(){const pair=aState.pair;resetAnalysisState();aState.pair=pair;document.getElementById('avPairLabel').textContent=pair;renderStep();}
 
 function resetAnalysisState(){
-  aState={pair:'',htf:'',orderFlow:'',momentum:'',broken:'',pullback:'',step:0};aTrail=[];
+  aState={pair:'',htf:'',orderFlow:'',momentum:'',broken:'',lowerMomentum:'',pullback:'',step:0};aTrail=[];
   document.getElementById('trail').innerHTML='';document.getElementById('stepContent').innerHTML='';
   document.getElementById('progressFill').style.width='0%';
 }
@@ -451,12 +575,7 @@ document.getElementById('modalConfirmBtn').addEventListener('click',()=>{if(pend
 document.getElementById('modalOverlay').addEventListener('click',e=>{if(e.target===document.getElementById('modalOverlay'))closeModal();});
 document.getElementById('pairInput').addEventListener('keydown',e=>{if(e.key==='Enter')startAnalysis();});
 renderWatchlist();
-
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    navigator.serviceWorker.register('/sw.js');
-  });
-}
+if('serviceWorker' in navigator){window.addEventListener('load',()=>navigator.serviceWorker.register('/sw.js'));}
 </script>
 </body>
 </html>
